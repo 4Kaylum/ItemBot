@@ -45,3 +45,20 @@ CREATE TABLE guild_item_shop_messages(
     required_item_amount INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (guild_id, item_name, message_id)
 );
+
+
+CREATE TABLE craftable_items(
+    guild_id BIGINT NOT NULL,
+    item_name VARCHAR(200) NOT NULL,
+    amount_created INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (guild_id, item_name)
+);
+
+
+CREATE TABLE craftable_item_ingredients(
+    guild_id BIGINT NOT NULL,
+    item_name VARCHAR(200) NOT NULL,
+    ingredient_name VARCHAR(200) NOT NULL,
+    amount INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (guild_id, item_name, ingredient_name)
+);

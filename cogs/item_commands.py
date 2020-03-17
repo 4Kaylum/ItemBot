@@ -39,7 +39,7 @@ class ItemCommands(utils.Cog):
         # Make embed
         with utils.Embed() as embed:
             embed.description = '\n'.join([
-                f"{i['amount']}x {i['item_name']}" for i in items
+                f"{i['amount']:,}x {i['item_name']}" for i in items
             ])
             embed.set_author_to_user(user)
         return await ctx.send(embed=embed)
@@ -56,7 +56,8 @@ class ItemCommands(utils.Cog):
             ctx.guild.id, item_name
         )
         if not acquire_information:
-            return await ctx.send(f"You can't acquire `{item_name}` items via the `getitem` command.")
+            await db.disconnect()
+            return await ctx.send(f"You can't acquire '{item_name}' items via the `getitem` command.")
         acquire_information = acquire_information[0]
 
         # See if they hit the timeout
@@ -64,6 +65,7 @@ class ItemCommands(utils.Cog):
         if last_run + timedelta(seconds=acquire_information['acquire_per']) > dt.utcnow():
             cooldown_seconds = ((last_run + timedelta(seconds=acquire_information['acquire_per'])) - dt.utcnow()).total_seconds()
             cooldown_timevalue = utils.TimeValue(cooldown_seconds)
+            await db.disconnect()
             return await ctx.send(f"You can't run this command again for another `{cooldown_timevalue.clean_spaced}`.")
         self.last_command_run[(ctx.guild.id, ctx.author.id, item_name)] = dt.utcnow()
 
@@ -75,7 +77,8 @@ class ItemCommands(utils.Cog):
             DO UPDATE SET amount=user_inventories.amount+excluded.amount""",
             ctx.guild.id, ctx.author.id, item_name, amount,
         )
-        return await ctx.send(f"You've received `{amount}x {item_name}`.")
+        await db.disconnect()
+        return await ctx.send(f"You've received `{amount:,}x {item_name}`.")
 
     @commands.command(cls=utils.Command, ignore_extra=False)
     @commands.has_permissions(manage_guild=True)
@@ -89,10 +92,10 @@ class ItemCommands(utils.Cog):
                 try:
                     await db("INSERT INTO guild_items (guild_id, item_name) VALUES ($1, $2)", ctx.guild.id, item_name)
                 except asyncpg.UniqueViolationError:
-                    return await ctx.send(f"There's already an item with the name `{item_name}` in your guild.")
+                    return await ctx.send(f"There's already an item with the name '{item_name}' in your guild.")
 
         # And tell them it's all good
-        return await ctx.send(f"Added an item with name `{item_name}` to your guild. Add acquire methods with the `acquireitem {item_name}` command.")
+        return await ctx.send(f"Added an item with name '{item_name}' to your guild. Add acquire methods with the `acquireitem {item_name}` command.")
 
     @commands.command(cls=utils.Command)
     @commands.has_permissions(manage_guild=True)
@@ -105,12 +108,12 @@ class ItemCommands(utils.Cog):
         async with self.bot.database() as db:
             rows = await db("SELECT * FROM guild_items WHERE guild_id=$1 AND item_name=$2", ctx.guild.id, item_name)
         if not rows:
-            return await ctx.send(f"There's no item with the name `{item_name}` in your guild. If you want one, you can set one up with `createitem {item_name}`.")
+            return await ctx.send(f"There's no item with the name '{item_name}' in your guild. If you want one, you can set one up with `createitem {item_name}`.")
 
         # Send initial message
-        self.logger.info(f"Setting up an item acquire for `{item_name}` in `{ctx.guild.id}`")
-        command_message = await ctx.send("You can set up items to be acquired via messages sent (like level up exp, \N{BLUE HEART}) and/or via command (like a daily command \N{GREEN HEART}). What would you like to set up now?")
-        valid_reactions = ["\N{BLUE HEART}", "\N{GREEN HEART}", "\N{HEAVY MULTIPLICATION X}"]
+        self.logger.info(f"Setting up an item acquire for '{item_name}' in {ctx.guild.id}")
+        command_message = await ctx.send("You can set up items to be acquired via messages sent (like level up exp, \N{BLUE HEART}), via command (like a daily command \N{GREEN HEART}), and/or via crafting (\N{YELLOW HEART}). What would you like to set up now?")
+        valid_reactions = ["\N{BLUE HEART}", "\N{GREEN HEART}", "\N{YELLOW HEART}", "\N{HEAVY MULTIPLICATION X}"]
         for e in valid_reactions:
             await command_message.add_reaction(e)
 
@@ -123,26 +126,31 @@ class ItemCommands(utils.Cog):
             )
             emoji = str(reaction.emoji)
         except asyncio.TimeoutError:
-            self.logger.info(f"Timed out setting up item acquire for `{item_name}` in `{ctx.guild.id}`")
+            self.logger.info(f"Timed out setting up item acquire for '{item_name}' in {ctx.guild.id}")
             return await ctx.send("Timed out setting up an item acquirement method - please try again later.")
 
         # They wanna abort
         if emoji == "\N{HEAVY MULTIPLICATION X}":
-            self.logger.info(f"Aborted setting up item acquire for `{item_name}` in `{ctx.guild.id}`")
-            return await ctx.send(f"Alright, aborting setting up an item acquire method for `{item_name}`.")
+            self.logger.info(f"Aborted setting up item acquire for '{item_name}' in {ctx.guild.id}")
+            return await ctx.send(f"Alright, aborting setting up an item acquire method for '{item_name}'.")
 
         # They wanna set up a command
         elif emoji == "\N{GREEN HEART}":
-            self.logger.info(f"Setting up a command acquire for `{item_name}` in `{ctx.guild.id}`")
+            self.logger.info(f"Setting up a command acquire for '{item_name}' in {ctx.guild.id}")
             return await self.set_up_acquire_command(ctx, item_name)
 
         # They wanna set up messasge acquire
         elif emoji == "\N{BLUE HEART}":
-            self.logger.info(f"Setting up a message acquire for `{item_name}` in `{ctx.guild.id}`")
+            self.logger.info(f"Setting up a message acquire for '{item_name}' in {ctx.guild.id}")
             return await self.set_up_message_acquire(ctx, item_name)
 
+        # They wanna set up messasge acquire
+        elif emoji == "\N{YELLOW HEART}":
+            self.logger.info(f"Setting up a crafting recipe for '{item_name}' in {ctx.guild.id}")
+            return await self.set_up_crafting_recipe(ctx, item_name)
+
         # And they managed to get something else
-        self.logger.info(f"Fucked up setting up item acquire for `{item_name}` in `{ctx.guild.id}` - managed to pass with a {emoji} emoji")
+        self.logger.info(f"Fucked up setting up item acquire for '{item_name}' in {ctx.guild.id} - managed to pass with a {emoji} emoji")
         return await ctx.send("I don't think you should ever see this message.")
 
     async def set_up_acquire_command(self, ctx:utils.Context, item_name:str):
@@ -228,12 +236,102 @@ class ItemCommands(utils.Cog):
                 SET min_acquired=$3, max_acquired=$4, acquire_per=$5""",
                 ctx.guild.id, item_name, random_min, random_max, timeout_timevalue.delta.total_seconds()
             )
-        return await ctx.send(f"Information saved to database - you can now acquire between `{random_min}` and `{random_max}` of `{item_name}` every `{timeout_timevalue.clean_spaced}` via the `getitem {item_name}` command.")
+        return await ctx.send(f"Information saved to database - you can now acquire between `{random_min:,}` and `{random_max:,}` of '{item_name}' every `{timeout_timevalue.clean_spaced}` via the `getitem {item_name}` command.")
 
     async def set_up_message_acquire(self, ctx:utils.Context, item_name:str):
         """Talks the user through setting up item acquires via message sends"""
 
         return await ctx.send("I didn't actually code this yet so whoops")
+
+    async def set_up_crafting_recipe(self, ctx:utils.Context, item_name:str):
+        """Talks the user through setting up an item crafting recipe"""
+
+        ingredient_list = []
+
+        # Ask what the item will be made from initially
+        ingredient_bot_message = await ctx.send("What item, and how many of that item, make up an ingredient of this crafting recipe (eg `5 cat`, `1 pizza slice`, `69 bee`, etc)?\n(Items are not checked until the end, so make sure you're spelling things correctly)")
+        try:
+            ingredient_user_message = await self.bot.wait_for(
+                "message", timeout=120.0,
+                check=lambda m: m.author.id == ctx.author.id and m.channel.id == ctx.channel.id and m.content,
+            )
+        except asyncio.TimeoutError:
+            return await ctx.send("Timed out setting up an item acquirement via crafting - please try again later.")
+
+        # Parse ingredient
+        amount_str, *ingredient_name = ingredient_user_message.content.split(' ')
+        if not amount_str.isdigit():
+            their_value = await commands.clean_content().convert(ctx, amount_str)
+            return await ctx.send(f"I couldn't convert `{their_value}` into an integer - please try again later.")
+        ingredient_list.append((int(amount_str), ' '.join(ingredient_name)))
+
+        # Ask about the rest of the ingredients
+        while True:
+            ingredient_bot_message = await ctx.send("Is there another item that's part of this recipe (eg `5 cat`, `1 pizza slice`, `69 bee`, etc)? If not, just react (\N{HEAVY MULTIPLICATION X}) below.")
+            try:
+                done, pending = await asyncio.wait([
+                    self.bot.wait_for('message', check=lambda m: m.author.id == ctx.author.id and m.channel.id == ctx.channel.id and m.content),
+                    self.bot.wait_for('reaction_add', check=self.get_reaction_add_check(ctx, ingredient_bot_message, ["\N{HEAVY MULTIPLICATION X}"])),
+                ], return_when=asyncio.FIRST_COMPLETED, timeout=120.0)
+                for future in pending:
+                    future.cancel()  # we don't need these anymore
+            except asyncio.TimeoutError:
+                return await ctx.send("Timed out setting up an item acquirement via crafting - please try again later.")
+
+            # Did they message or react?
+            result = done.pop().result()
+            if isinstance(result, discord.Message):
+                ingredient_user_message = result
+            else:
+                break
+
+            # Parse ingredient
+            amount_str, *ingredient_name = ingredient_user_message.content.split(' ')
+            if not amount_str.isdigit():
+                their_value = await commands.clean_content().convert(ctx, amount_str)
+                return await ctx.send(f"I couldn't convert `{their_value}` into an integer - please try again later.")
+            ingredient_list.append((int(amount_str), ' '.join(ingredient_name)))
+
+        # Ask how many of the item should be created
+        await ctx.send(f"How many `{item_name}` should be created from this crafting recipe?")
+        try:
+            item_create_amount_message = await self.bot.wait_for(
+                "message", timeout=120.0,
+                check=lambda m: m.author.id == ctx.author.id and m.channel.id == ctx.channel.id and m.content
+            )
+        except asyncio.TimeoutError:
+            return await ctx.send("Timed out setting up an item acquirement via crafting - please try again later.")
+        try:
+            item_create_amount = int(item_create_amount_message.content)
+        except ValueError:
+            their_value = await commands.clean_content().convert(ctx, item_create_amount_message.content)
+            return await ctx.send(f"I couldn't convert `{their_value}` into an integer - please try again later.")
+
+        # Check that all the given items exist
+        db = await self.bot.database.get_connection()
+        all_items = await db("SELECT * FROM guild_items WHERE guild_id=$1", ctx.guild.id)
+        invalid_items = [i for i in ingredient_list if i[1] not in [o['item_name'] for o in all_items]]
+        if invalid_items:
+            await db.disconnect()
+            return await ctx.send(f"You gave some invalid items in your ingredients - {invalid_items!s} - please try again later.")
+
+        # Add them to the database
+        async with ctx.typing():
+            await db(
+                """INSERT INTO craftable_items (guild_id, item_name, amount_created)
+                VALUES ($1, $2, $3)""",
+                ctx.guild.id, item_name, item_create_amount
+            )
+            for amount, ingredient_name in ingredient_list:
+                await db(
+                    """INSERT INTO craftable_item_ingredients (guild_id, item_name, ingredient_name, amount)
+                    VALUES ($1, $2, $3, $4)""",
+                    ctx.guild.id, item_name, ingredient_name, amount
+                )
+
+        # And respond
+        await db.disconnect()
+        return await ctx.send("Your crafting recipe has been added!")
 
 
 def setup(bot:utils.Bot):
