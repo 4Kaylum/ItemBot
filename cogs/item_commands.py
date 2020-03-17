@@ -59,31 +59,44 @@ class ItemCommands(utils.Cog):
 
         # Add in some dictionaries to make this a lil easier
         ingredients = {i['ingredient_name']: i['amount'] for i in item_craft_ingredients}
-        inventory = {i['item_name']: i['amount'] for i in user_inventory if i['item_name'] in ingredients}
+        inventory_original = {i['item_name']: i['amount'] for i in user_inventory if i['item_name'] in ingredients}
+        inventory = inventory_original.copy()
 
         # See if they have enough of the items
+        max_craftable_amount = []
         for ingredient, required_amount in ingredients.items():
             if inventory[ingredient] - required_amount < 0:
                 return await ctx.send(f"You don't have enough `{ingredient}` items to craft this.")
-            inventory[ingredient] -= required_amount
+            max_craftable_amount.append(inventory[ingredient] // required_amount)
+        max_craftable_amount = min(max_craftable_amount)
 
         # Make sure they wanna make it
         ingredient_string = [f"`{o}x {i}`" for i, o in ingredients.items()]
-        confirmation_message = await ctx.send(f"This craft gives you `{item_craft_amount[0]['amount_created']}x {crafted_item_name}` and is made from {', '.join(ingredient_string)}. Would you like to go ahead with this?")
-        valid_reactions = ["\N{HEAVY CHECK MARK}", "\N{HEAVY MULTIPLICATION X}"]
-        for e in valid_reactions:
-            await confirmation_message.add_reaction(e)
+        await ctx.send(f"This craft gives you `{item_craft_amount[0]['amount_created']}x {crafted_item_name}` and is made from {', '.join(ingredient_string)}. You can make this between 0 and {max_craftable_amount} times - how many times would you like to craft this?")
         try:
-            reaction, _ = await self.bot.wait_for(
-                "reaction_add", timeout=120.0,
-                check=self.get_reaction_add_check(ctx, confirmation_message, valid_reactions)
+            crafting_amount_message = await self.bot.wait_for(
+                "message", timeout=120.0,
+                check=lambda m: m.channel.id == ctx.channel.id and m.author.id == ctx.author.id and m.content
             )
         except asyncio.TimeoutError:
             return await ctx.send("Timed out on crafting confirmation - please try again later.")
 
-        # Check their reaction
-        if str(reaction.emoji) == "\N{HEAVY MULTIPLICATION X}":
+        # Get how many they want to craft, and make sure they can do it
+        try:
+            user_craft_amount = int(crafting_amount_message.content)
+        except ValueError:
+            their_value = await commands.clean_content().convert(ctx, crafting_amount_message.content)
+            return await ctx.send(f"I couldn't convert `{their_value}` into an integer - please try again later.")
+
+        # See if they said 0
+        if user_craft_amount == 0:
             return await ctx.send("Alright, aborting crafting!")
+
+        # Remove the right amounts from their inventory
+        for ingredient, required_amount in ingredients.items():
+            if inventory[ingredient] - (required_amount * user_craft_amount) < 0:
+                return await ctx.send(f"You don't have enough `{ingredient}` items to craft this.")
+            inventory[ingredient] -= (required_amount * user_craft_amount)
 
         # Alter their inventory babey lets GO
         async with ctx.typing():
@@ -97,9 +110,9 @@ class ItemCommands(utils.Cog):
                     """INSERT INTO user_inventories (guild_id, user_id, item_name, amount)
                     VALUES ($1, $2, $3, $4) ON CONFLICT (guild_id, user_id, item_name)
                     DO UPDATE SET amount=user_inventories.amount+excluded.amount""",
-                    ctx.guild.id, ctx.author.id, crafted_item_name, item_craft_amount[0]['amount_created']
+                    ctx.guild.id, ctx.author.id, crafted_item_name, item_craft_amount[0]['amount_created'] * user_craft_amount
                 )
-        return await ctx.send(f"You've sucessfully crafted `{item_craft_amount[0]['amount_created']}x {crafted_item_name}`.")
+        return await ctx.send(f"You've sucessfully crafted `{item_craft_amount[0]['amount_created'] * user_craft_amount:,}x {crafted_item_name}`.")
 
     @commands.command(cls=utils.Command)
     @commands.guild_only()
