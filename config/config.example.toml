@@ -1,6 +1,6 @@
 token = "bot_token"
 owners = [ 141231597155385344, ]
-default_prefix = "!"  # The prefix for the bot's commands
+default_prefix = "i."  # The prefix for the bot's commands
 guild_id = 1  # The ID of the main/support guild
 
 # Data that's copied directly over to a command without processing
@@ -11,12 +11,12 @@ guild_id = 1  # The ID of the main/support guild
 
 # This data is passed directly over to asyncpg
 [database]
-    user = "database_username"
+    user = "itembot"
     password = "DatabasePassword"
-    database = "database_name"
+    database = "itembot"
     host = "127.0.0.1"
     port = 5432
-    enabled = false
+    enabled = true
 
 # This data is passed directly over to aioredis
 [redis]
@@ -27,8 +27,8 @@ guild_id = 1  # The ID of the main/support guild
 
 # What the bot is playing
 [presence]
-    activity_type = "playing"  # Should be one of 'playing', 'listening', 'watching'
-    text = "Game playing text"
+    activity_type = "watching"  # Should be one of 'playing', 'listening', 'watching'
+    text = "your stuff (i.help)"
     status = "online"  # Should be one of 'online', 'invisible', 'idle', 'dnd'
 
 # Used to generate the invite link - client ID only necessary for webserver
