@@ -39,10 +39,67 @@ class ItemCommands(utils.Cog):
         # Make embed
         with utils.Embed() as embed:
             embed.description = '\n'.join([
-                f"{i['amount']:,}x {i['item_name']}" for i in items
+                f"{i['amount']:,}x {i['item_name']}" for i in items if i['amount'] > 0
             ])
             embed.set_author_to_user(user)
         return await ctx.send(embed=embed)
+
+    @commands.command(cls=utils.Command, aliases=['craft'])
+    @commands.guild_only()
+    async def craftitem(self, ctx:utils.Context, *, crafted_item_name:utils.converters.CleanContentLowercase):
+        """Crafts a new item from your current inventory"""
+
+        # See if there's a crafting recipe set up
+        async with self.bot.database() as db:
+            item_craft_amount = await db("SELECT * FROM craftable_items WHERE guild_id=$1 AND item_name=$2", ctx.guild.id, crafted_item_name)
+            item_craft_ingredients = await db("SELECT * FROM craftable_item_ingredients WHERE guild_id=$1 AND item_name=$2", ctx.guild.id, crafted_item_name)
+            user_inventory = await db("SELECT * FROM user_inventories WHERE guild_id=$1 AND user_id=$2", ctx.guild.id, ctx.author.id)
+        if not item_craft_amount:
+            return await ctx.send(f"You can't acquire '{crafted_item_name}' items via the crafting.")
+
+        # Add in some dictionaries to make this a lil easier
+        ingredients = {i['ingredient_name']: i['amount'] for i in item_craft_ingredients}
+        inventory = {i['item_name']: i['amount'] for i in user_inventory if i['item_name'] in ingredients}
+
+        # See if they have enough of the items
+        for ingredient, required_amount in ingredients.items():
+            if inventory[ingredient] - required_amount < 0:
+                return await ctx.send(f"You don't have enough `{ingredient}` items to craft this.")
+            inventory[ingredient] -= required_amount
+
+        # Make sure they wanna make it
+        ingredient_string = [f"`{o}x {i}`" for i, o in ingredients.items()]
+        confirmation_message = await ctx.send(f"This craft gives you `{item_craft_amount[0]['amount_created']}x {crafted_item_name}` and is made from {', '.join(ingredient_string)}. Would you like to go ahead with this?")
+        valid_reactions = ["\N{HEAVY CHECK MARK}", "\N{HEAVY MULTIPLICATION X}"]
+        for e in valid_reactions:
+            await confirmation_message.add_reaction(e)
+        try:
+            reaction, _ = await self.bot.wait_for(
+                "reaction_add", timeout=120.0,
+                check=self.get_reaction_add_check(ctx, confirmation_message, valid_reactions)
+            )
+        except asyncio.TimeoutError:
+            return await ctx.send("Timed out on crafting confirmation - please try again later.")
+
+        # Check their reaction
+        if str(reaction.emoji) == "\N{HEAVY MULTIPLICATION X}":
+            return await ctx.send("Alright, aborting crafting!")
+
+        # Alter their inventory babey lets GO
+        async with ctx.typing():
+            async with self.bot.database() as db:
+                for item, amount in inventory.items():
+                    await db(
+                        "UPDATE user_inventories SET amount=$4 WHERE guild_id=$1 AND user_id=$2 AND item_name=$3",
+                        ctx.guild.id, ctx.author.id, item, amount
+                    )
+                await db(
+                    """INSERT INTO user_inventories (guild_id, user_id, item_name, amount)
+                    VALUES ($1, $2, $3, $4) ON CONFLICT (guild_id, user_id, item_name)
+                    DO UPDATE SET amount=user_inventories.amount+excluded.amount""",
+                    ctx.guild.id, ctx.author.id, crafted_item_name, item_craft_amount[0]['amount_created']
+                )
+        return await ctx.send(f"You've sucessfully crafted `{item_craft_amount[0]['amount_created']}x {crafted_item_name}`.")
 
     @commands.command(cls=utils.Command)
     @commands.guild_only()
@@ -268,6 +325,7 @@ class ItemCommands(utils.Cog):
         # Ask about the rest of the ingredients
         while True:
             ingredient_bot_message = await ctx.send("Is there another item that's part of this recipe (eg `5 cat`, `1 pizza slice`, `69 bee`, etc)? If not, just react (\N{HEAVY MULTIPLICATION X}) below.")
+            await ingredient_bot_message.add_reaction("\N{HEAVY MULTIPLICATION X}")
             try:
                 done, pending = await asyncio.wait([
                     self.bot.wait_for('message', check=lambda m: m.author.id == ctx.author.id and m.channel.id == ctx.channel.id and m.content),
