@@ -7,8 +7,7 @@ from datetime import datetime as dt, timedelta
 import asyncpg
 import discord
 from discord.ext import commands
-
-from cogs import utils
+import voxelbotutils as utils
 
 
 class ItemCommands(utils.Cog):
@@ -19,15 +18,19 @@ class ItemCommands(utils.Cog):
 
     @staticmethod
     def get_reaction_add_check(ctx:utils.Context, message:discord.Message, valid_reactions:typing.List[str]):
-        """Creates a lambda for use in the add_reaction check"""
+        """
+        Creates a lambda for use in the add_reaction check.
+        """
 
         return lambda r, u: str(r.emoji) in valid_reactions and u.id == ctx.author.id and r.message.id == message.id
 
-    @commands.command(cls=utils.Command, aliases=['inv', 'i'])
+    @utils.command(aliases=['inv', 'i'])
     @commands.bot_has_permissions(embed_links=True)
     @commands.guild_only()
     async def inventory(self, ctx:utils.Context, user:discord.Member=None):
-        """Checks the inventory of a user"""
+        """
+        Checks the inventory of a user.of
+        """
 
         # Get items for the user
         user = user or ctx.author
@@ -44,18 +47,21 @@ class ItemCommands(utils.Cog):
             embed.set_author_to_user(user)
         return await ctx.send(embed=embed)
 
-    @commands.command(cls=utils.Command, aliases=['craft'])
+    @utils.command(aliases=['craft'])
     @commands.guild_only()
-    async def craftitem(self, ctx:utils.Context, *, crafted_item_name:utils.converters.CleanContentLowercase):
-        """Crafts a new item from your current inventory"""
+    async def craftitem(self, ctx:utils.Context, *, crafted_item_name:commands.clean_content):
+        """
+        Crafts a new item from your current inventory.
+        """
 
         # See if there's a crafting recipe set up
+        crafted_item_name = crafted_item_name.lower()
         async with self.bot.database() as db:
             item_craft_amount = await db("SELECT * FROM craftable_items WHERE guild_id=$1 AND item_name=$2", ctx.guild.id, crafted_item_name)
+            if not item_craft_amount:
+                return await ctx.send(f"You can't acquire **{crafted_item_name}** items via the crafting.")
             item_craft_ingredients = await db("SELECT * FROM craftable_item_ingredients WHERE guild_id=$1 AND item_name=$2", ctx.guild.id, crafted_item_name)
             user_inventory = await db("SELECT * FROM user_inventories WHERE guild_id=$1 AND user_id=$2", ctx.guild.id, ctx.author.id)
-        if not item_craft_amount:
-            return await ctx.send(f"You can't acquire '{crafted_item_name}' items via the crafting.")
 
         # Add in some dictionaries to make this a lil easier
         ingredients = {i['ingredient_name']: i['amount'] for i in item_craft_ingredients}
@@ -65,14 +71,14 @@ class ItemCommands(utils.Cog):
         # See if they have enough of the items
         max_craftable_amount = []
         for ingredient, required_amount in ingredients.items():
-            if inventory[ingredient] - required_amount < 0:
-                return await ctx.send(f"You don't have enough `{ingredient}` items to craft this.")
-            max_craftable_amount.append(inventory[ingredient] // required_amount)
+            if inventory.get(ingredient, 0) - required_amount < 0:
+                return await ctx.send(f"You don't have enough **{ingredient}** items to craft this.")
+            max_craftable_amount.append(inventory.get(ingredient) // required_amount)
         max_craftable_amount = min(max_craftable_amount)
 
         # Make sure they wanna make it
         ingredient_string = [f"`{o}x {i}`" for i, o in ingredients.items()]
-        await ctx.send(f"This craft gives you `{item_craft_amount[0]['amount_created']}x {crafted_item_name}` and is made from {', '.join(ingredient_string)}. You can make this between 0 and {max_craftable_amount} times - how many times would you like to craft this?")
+        await ctx.send(f"This craft gives you **{item_craft_amount[0]['amount_created']}x {crafted_item_name}** and is made from {', '.join(ingredient_string)}. You can make this between 0 and {max_craftable_amount} times - how many times would you like to craft this?")
         try:
             crafting_amount_message = await self.bot.wait_for(
                 "message", timeout=120.0,
@@ -89,13 +95,13 @@ class ItemCommands(utils.Cog):
             return await ctx.send(f"I couldn't convert `{their_value}` into an integer - please try again later.")
 
         # See if they said 0
-        if user_craft_amount == 0:
+        if user_craft_amount <= 0:
             return await ctx.send("Alright, aborting crafting!")
 
         # Remove the right amounts from their inventory
         for ingredient, required_amount in ingredients.items():
             if inventory[ingredient] - (required_amount * user_craft_amount) < 0:
-                return await ctx.send(f"You don't have enough `{ingredient}` items to craft this.")
+                return await ctx.send(f"You don't have enough **{ingredient}** items to craft this.")
             inventory[ingredient] -= (required_amount * user_craft_amount)
 
         # Alter their inventory babey lets GO
@@ -112,22 +118,25 @@ class ItemCommands(utils.Cog):
                     DO UPDATE SET amount=user_inventories.amount+excluded.amount""",
                     ctx.guild.id, ctx.author.id, crafted_item_name, item_craft_amount[0]['amount_created'] * user_craft_amount
                 )
-        return await ctx.send(f"You've sucessfully crafted `{item_craft_amount[0]['amount_created'] * user_craft_amount:,}x {crafted_item_name}`.")
+        return await ctx.send(f"You've sucessfully crafted **{item_craft_amount[0]['amount_created'] * user_craft_amount:,}x {crafted_item_name}**.")
 
-    @commands.command(cls=utils.Command)
+    @utils.command()
     @commands.guild_only()
-    async def getitem(self, ctx:utils.Context, *, item_name:utils.converters.CleanContentLowercase):
-        """Gets you an item from the server"""
+    async def getitem(self, ctx:utils.Context, *, item_name:commands.clean_content):
+        """
+        Gets you an item from the server.
+        """
 
         # Get the item from the db
+        item_name = item_name.lower()
         db = await self.bot.database.get_connection()
         acquire_information = await db(
-            "SELECT * FROM guild_item_acquire_methods WHERE guild_id=$1 AND item_name=$2 AND acquired_by='Command'",
+            "SELECT * FROM guild_item_acquire_methods WHERE guild_id=$1 AND item_name=$2 AND acquired_by='command'",
             ctx.guild.id, item_name
         )
         if not acquire_information:
             await db.disconnect()
-            return await ctx.send(f"You can't acquire '{item_name}' items via the `getitem` command.")
+            return await ctx.send(f"You can't acquire **{item_name}** items via the `getitem` command.")
         acquire_information = acquire_information[0]
 
         # See if they hit the timeout
@@ -150,35 +159,37 @@ class ItemCommands(utils.Cog):
         await db.disconnect()
         return await ctx.send(f"You've received `{amount:,}x {item_name}`.")
 
-    @commands.command(cls=utils.Command, ignore_extra=False)
+    @utils.command(ignore_extra=False, aliases=['makeitem', 'additem'])
     @commands.has_permissions(manage_guild=True)
     @commands.guild_only()
-    async def createitem(self, ctx:utils.Context, *, item_name:utils.converters.CleanContentLowercase):
-        """Creates an item that people are able to get"""
+    async def createitem(self, ctx:utils.Context, *, item_name:commands.clean_content):
+        """
+        Creates an item that people are able to get.
+        """
 
-        # Add item to db
-        async with ctx.typing():
-            async with self.bot.database() as db:
-                try:
-                    await db("INSERT INTO guild_items (guild_id, item_name) VALUES ($1, $2)", ctx.guild.id, item_name)
-                except asyncpg.UniqueViolationError:
-                    return await ctx.send(f"There's already an item with the name '{item_name}' in your guild.")
+        item_name = item_name.lower()
+        async with self.bot.database() as db:
+            try:
+                await db("INSERT INTO guild_items (guild_id, item_name) VALUES ($1, $2)", ctx.guild.id, item_name)
+            except asyncpg.UniqueViolationError:
+                return await ctx.send(f"There's already an item with the name **{item_name}** in your guild.")
+        return await ctx.send(f"Added an item with name **{item_name}** to your guild. Add acquire methods with the `{ctx.clean_prefix}getitem {item_name}` command.")
 
-        # And tell them it's all good
-        return await ctx.send(f"Added an item with name '{item_name}' to your guild. Add acquire methods with the `acquireitem {item_name}` command.")
-
-    @commands.command(cls=utils.Command)
+    @utils.command()
     @commands.has_permissions(manage_guild=True)
     @commands.bot_has_permissions(add_reactions=True, send_messages=True)
     @commands.guild_only()
-    async def acquireitem(self, ctx:utils.Context, *, item_name:utils.converters.CleanContentLowercase):
-        """Sets up how an item on your server can be acquired"""
+    async def acquireitem(self, ctx:utils.Context, *, item_name:commands.clean_content):
+        """
+        Sets up how an item on your server can be acquired.
+        """
 
         # Make sure the item exists
+        item_name = item_name.lower()
         async with self.bot.database() as db:
             rows = await db("SELECT * FROM guild_items WHERE guild_id=$1 AND item_name=$2", ctx.guild.id, item_name)
         if not rows:
-            return await ctx.send(f"There's no item with the name '{item_name}' in your guild. If you want one, you can set one up with `createitem {item_name}`.")
+            return await ctx.send(f"There's no item with the name **{item_name}** in your guild. If you want one, you can set one up with `{ctx.clean_prefix}createitem {item_name}`.")
 
         # Send initial message
         self.logger.info(f"Setting up an item acquire for '{item_name}' in {ctx.guild.id}")
@@ -224,16 +235,18 @@ class ItemCommands(utils.Cog):
         return await ctx.send("I don't think you should ever see this message.")
 
     async def set_up_acquire_command(self, ctx:utils.Context, item_name:str):
-        """Talks the user through setting up a command where the user an acquire an item"""
+        """
+        Talks the user through setting up a command where the user an acquire an item.
+        """
 
         # See if stuff's already been set up
         async with self.bot.database() as db:
-            rows = await db("SELECT * FROM guild_item_acquire_methods WHERE guild_id=$1 AND item_name=$2 AND acquired_by='Command'", ctx.guild.id, item_name)
-        if rows:
+            rows = await db("SELECT * FROM guild_item_acquire_methods WHERE guild_id=$1 AND item_name=$2 AND acquired_by='command'", ctx.guild.id, item_name)
 
+        if rows:
             # See if they want to remove their current setup
             valid_reactions = ["\N{HEAVY MULTIPLICATION X}", "\N{BLACK QUESTION MARK ORNAMENT}"]
-            acquire_method_setup = await ctx.send(f"You already have an acquire method set up for commands via the `getitem {item_name}` command. Would you like to remove this command (\N{HEAVY MULTIPLICATION X}) or alter how the command works (\N{BLACK QUESTION MARK ORNAMENT})?")
+            acquire_method_setup = await ctx.send(f"You already have an acquire method set up for commands via the `{ctx.clean_prefix}getitem {item_name}` command. Would you like to remove this command (\N{HEAVY MULTIPLICATION X}) or change how the command works (\N{BLACK QUESTION MARK ORNAMENT})?")
             for e in valid_reactions:
                 await acquire_method_setup.add_reaction(e)
             try:
@@ -248,11 +261,11 @@ class ItemCommands(utils.Cog):
             # See if they just wanna delete
             if emoji == "\N{HEAVY MULTIPLICATION X}":
                 async with self.bot.database() as db:
-                    await db("DELETE FROM guild_item_acquire_methods WHERE guild_id=$1 AND item_name=$2 AND acquired_by='Command'", ctx.guild.id, item_name)
-                return await ctx.send(f"Deleted the `getitem {item_name}` command.")
+                    await db("DELETE FROM guild_item_acquire_methods WHERE guild_id=$1 AND item_name=$2 AND acquired_by='command'", ctx.guild.id, item_name)
+                return await ctx.send(f"Deleted the `{ctx.clean_prefix}getitem {item_name}` command.")
 
         # See their random amount minimum
-        await ctx.send(f"When the `getitem {item_name}` command is run, they'll be given a random amount of the item - what's the _minimum_ you want users to be able to get?")
+        await ctx.send(f"When the `{ctx.clean_prefix}getitem {item_name}` command is run, they'll be given a random amount of the item - what's the _minimum_ you want users to be able to get?")
         try:
             user_message_minimum = await self.bot.wait_for(
                 "message", timeout=120.0,
@@ -265,7 +278,7 @@ class ItemCommands(utils.Cog):
             return await ctx.send("Timed out setting up an item acquirement via command - please try again later.")
 
         # See their random amount maximum
-        await ctx.send(f"What's the _maximum_ you want users to be able to get?")
+        await ctx.send("What's the _maximum_ you want users to be able to get?")
         try:
             user_message_maximum = await self.bot.wait_for(
                 "message", timeout=120.0,
@@ -278,7 +291,7 @@ class ItemCommands(utils.Cog):
             return await ctx.send("Timed out setting up an item acquirement via command - please try again later.")
 
         # See how often the command should be able to be run
-        await ctx.send(f"Obviously the command shouldn't be run all the time - how often should users be able to run the command (eg `1h`, `5m`, etc)?")
+        await ctx.send("Obviously the command shouldn't be run all the time - how often should users be able to run the command (eg `1h`, `5m`, etc)?")
         try:
             user_message_timeout = await self.bot.wait_for(
                 "message", timeout=120.0,
@@ -302,19 +315,52 @@ class ItemCommands(utils.Cog):
         async with self.bot.database() as db:
             await db(
                 """INSERT INTO guild_item_acquire_methods (guild_id, item_name, acquired_by, min_acquired,
-                max_acquired, acquire_per) VALUES ($1, $2, 'Command', $3, $4, $5) ON CONFLICT (guild_id, item_name, acquired_by) DO UPDATE
+                max_acquired, acquire_per) VALUES ($1, $2, 'command', $3, $4, $5) ON CONFLICT (guild_id, item_name, acquired_by) DO UPDATE
                 SET min_acquired=$3, max_acquired=$4, acquire_per=$5""",
                 ctx.guild.id, item_name, random_min, random_max, timeout_timevalue.delta.total_seconds()
             )
-        return await ctx.send(f"Information saved to database - you can now acquire between `{random_min:,}` and `{random_max:,}` of '{item_name}' every `{timeout_timevalue.clean_spaced}` via the `getitem {item_name}` command.")
+        return await ctx.send(f"Information saved to database - you can now acquire between `{random_min:,}` and `{random_max:,}` of **{item_name}** every `{timeout_timevalue.clean_spaced}` via the `{ctx.clean_prefix}getitem {item_name}` command.")
 
     async def set_up_message_acquire(self, ctx:utils.Context, item_name:str):
-        """Talks the user through setting up item acquires via message sends"""
+        """
+        Talks the user through setting up item acquires via message sends.
+        """
 
         return await ctx.send("I didn't actually code this yet so whoops")
 
     async def set_up_crafting_recipe(self, ctx:utils.Context, item_name:str):
-        """Talks the user through setting up an item crafting recipe"""
+        """
+        Talks the user through setting up an item crafting recipe.
+        """
+
+        # See if stuff's already been set up
+        async with self.bot.database() as db:
+            rows = await db("SELECT * FROM craftable_items WHERE guild_id=$1 AND item_name=$2", ctx.guild.id, item_name)
+
+        if rows:
+            # See if they want to remove their current setup
+            valid_reactions = ["\N{HEAVY MULTIPLICATION X}", "\N{BLACK QUESTION MARK ORNAMENT}"]
+            acquire_method_setup = await ctx.send(f"You already have an acquire method set up for crafting via the `{ctx.clean_prefix}craftitem {item_name}` command. Would you like to remove this (\N{HEAVY MULTIPLICATION X}) or change how the crafting works (\N{BLACK QUESTION MARK ORNAMENT})?")
+            for e in valid_reactions:
+                await acquire_method_setup.add_reaction(e)
+            try:
+                reaction, _ = await self.bot.wait_for(
+                    "reaction_add", timeout=120.0,
+                    check=self.get_reaction_add_check(ctx, acquire_method_setup, valid_reactions)
+                )
+                emoji = str(reaction.emoji)
+            except asyncio.TimeoutError:
+                return await ctx.send("Timed out setting up an item acquirement via crafting - please try again later.")
+
+            # See if they just wanna delete
+            if emoji == "\N{HEAVY MULTIPLICATION X}":
+                async with self.bot.database() as db:
+                    await db("DELETE FROM craftable_items WHERE guild_id=$1 AND item_name=$2", ctx.guild.id, item_name)
+                    await db("DELETE FROM craftable_item_ingredients WHERE guild_id=$1 AND item_name=$2", ctx.guild.id, item_name)
+                return await ctx.send(f"Deleted the crafting recipe for `{item_name}` items.")
+            async with self.bot.database() as db:
+                await db("DELETE FROM craftable_items WHERE guild_id=$1 AND item_name=$2", ctx.guild.id, item_name)
+                await db("DELETE FROM craftable_item_ingredients WHERE guild_id=$1 AND item_name=$2", ctx.guild.id, item_name)
 
         ingredient_list = []
 
@@ -403,6 +449,75 @@ class ItemCommands(utils.Cog):
         # And respond
         await db.disconnect()
         return await ctx.send("Your crafting recipe has been added!")
+
+    @commands.command()
+    @commands.guild_only()
+    async def itemmap(self, ctx:utils.Context):
+        """Shows the item map for your guild"""
+
+        # Get the items for the guild
+        async with self.bot.database() as db:
+            acquirable_items = await db("SELECT * FROM guild_item_acquire_methods WHERE guild_id=$1", ctx.guild.id)
+            craftable_items = await db("SELECT * FROM craftable_item_ingredients WHERE guild_id=$1", ctx.guild.id)
+
+        # Let's start off our dot right
+        lines = [
+            'digraph{',
+            'overlap=scale;',
+            'node[style=filled];',
+            'bgcolour=transparent;',
+            'command[label="getitem", fillcolor=lightblue];',
+        ]
+        start_time = dt.utcnow()
+
+        # Go through each item
+        for item in acquirable_items:
+            if item['acquired_by'].lower() == 'command':
+                lines.append(f'command -> "{item["item_name"]}" [label="{item["min_acquired"]}-{item["max_acquired"]}x"];')
+        for item in craftable_items:
+            lines.append(f'"{item["ingredient_name"]}" -> "{item["item_name"]}" [label="{item["amount"]}x"];')
+        lines.append('}')
+        all_code = ''.join(lines)
+
+        # Write code to file
+        try:
+            with open(f'{ctx.guild.id}.gz', 'w', encoding='utf-8') as a:
+                a.write(all_code)
+        except Exception as e:
+            self.logger.error(f"Could not write to {ctx.guild.id}.gz")
+            raise e
+
+        # Convert to an image
+        dot = await asyncio.create_subprocess_exec(*[
+            'neato',
+            '-Tpng',
+            f'{ctx.guild.id}.gz',
+            '-o',
+            f'{ctx.guild.id}.png',
+            '-Gcharset=UTF-8',
+        ], loop=self.bot.loop)
+        await asyncio.wait_for(dot.wait(), 10.0, loop=self.bot.loop)
+
+        # Kill subprocess
+        try:
+            dot.kill()
+        except ProcessLookupError:
+            pass  # It already died
+        except Exception as e:
+            raise e
+
+        # Get time taken
+        end_time = dt.now()
+        time_taken = (end_time - start_time).total_seconds()
+
+        # Send file
+        file = discord.File(fp=f'{ctx.guild.id}.png')
+        text = f"Generated in `{time_taken:.2f}` seconds from `{len(all_code)}` bytes of DOT code, "
+        await ctx.send(text, file=file)
+
+        # Delete cached
+        self.bot.loop.create_task(asyncio.create_subprocess_exec('rm', f'{ctx.guild.id}.gz', loop=self.bot.loop))
+        self.bot.loop.create_task(asyncio.create_subprocess_exec('rm', f'{ctx.guild.id}.png', loop=self.bot.loop))
 
 
 def setup(bot:utils.Bot):

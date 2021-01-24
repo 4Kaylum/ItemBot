@@ -1,10 +1,10 @@
-CREATE TABLE guild_settings(
+CREATE TABLE IF NOT EXISTS guild_settings(
     guild_id BIGINT PRIMARY KEY,
     prefix VARCHAR(30)
 );
 
 
-CREATE TABLE user_inventories(
+CREATE TABLE IF NOT EXISTS user_inventories(
     guild_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
     item_name VARCHAR(200) NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE user_inventories(
 );
 
 
-CREATE TABLE guild_items(
+CREATE TABLE IF NOT EXISTS guild_items(
     guild_id BIGINT NOT NULL,
     item_name VARCHAR(200) NOT NULL,
     PRIMARY KEY (guild_id, item_name)
@@ -21,11 +21,11 @@ CREATE TABLE guild_items(
 
 
 CREATE TYPE acquire_type AS ENUM(
-    'Message', 'Command'
+    'message', 'command'
 );
+d
 
-
-CREATE TABLE guild_item_acquire_methods(
+CREATE TABLE IF NOT EXISTS guild_item_acquire_methods(
     guild_id BIGINT NOT NULL,
     item_name VARCHAR(200) NOT NULL,
     acquired_by acquire_type NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE guild_item_acquire_methods(
 );
 
 
-CREATE TABLE guild_item_shop_messages(
+CREATE TABLE IF NOT EXISTS guild_item_shop_messages(
     guild_id BIGINT NOT NULL,
     item_name VARCHAR(200) NOT NULL,
     message_id BIGINT NOT NULL,
@@ -47,7 +47,7 @@ CREATE TABLE guild_item_shop_messages(
 );
 
 
-CREATE TABLE craftable_items(
+CREATE TABLE IF NOT EXISTS craftable_items(
     guild_id BIGINT NOT NULL,
     item_name VARCHAR(200) NOT NULL,
     amount_created INTEGER NOT NULL DEFAULT 1,
@@ -55,7 +55,7 @@ CREATE TABLE craftable_items(
 );
 
 
-CREATE TABLE craftable_item_ingredients(
+CREATE TABLE IF NOT EXISTS craftable_item_ingredients(
     guild_id BIGINT NOT NULL,
     item_name VARCHAR(200) NOT NULL,
     ingredient_name VARCHAR(200) NOT NULL,
