@@ -131,7 +131,7 @@ class ItemCommands(utils.Cog):
         item_name = item_name.lower()
         db = await self.bot.database.get_connection()
         acquire_information = await db(
-            "SELECT * FROM guild_item_acquire_methods WHERE guild_id=$1 AND item_name=$2 AND acquired_by='command'",
+            "SELECT * FROM guild_item_acquire_methods WHERE guild_id=$1 AND item_name=$2 AND acquired_by='Command'",
             ctx.guild.id, item_name
         )
         if not acquire_information:
@@ -241,7 +241,7 @@ class ItemCommands(utils.Cog):
 
         # See if stuff's already been set up
         async with self.bot.database() as db:
-            rows = await db("SELECT * FROM guild_item_acquire_methods WHERE guild_id=$1 AND item_name=$2 AND acquired_by='command'", ctx.guild.id, item_name)
+            rows = await db("SELECT * FROM guild_item_acquire_methods WHERE guild_id=$1 AND item_name=$2 AND acquired_by='Command'", ctx.guild.id, item_name)
 
         if rows:
             # See if they want to remove their current setup
@@ -261,7 +261,7 @@ class ItemCommands(utils.Cog):
             # See if they just wanna delete
             if emoji == "\N{HEAVY MULTIPLICATION X}":
                 async with self.bot.database() as db:
-                    await db("DELETE FROM guild_item_acquire_methods WHERE guild_id=$1 AND item_name=$2 AND acquired_by='command'", ctx.guild.id, item_name)
+                    await db("DELETE FROM guild_item_acquire_methods WHERE guild_id=$1 AND item_name=$2 AND acquired_by='Command'", ctx.guild.id, item_name)
                 return await ctx.send(f"Deleted the `{ctx.clean_prefix}getitem {item_name}` command.")
 
         # See their random amount minimum
@@ -315,7 +315,7 @@ class ItemCommands(utils.Cog):
         async with self.bot.database() as db:
             await db(
                 """INSERT INTO guild_item_acquire_methods (guild_id, item_name, acquired_by, min_acquired,
-                max_acquired, acquire_per) VALUES ($1, $2, 'command', $3, $4, $5) ON CONFLICT (guild_id, item_name, acquired_by) DO UPDATE
+                max_acquired, acquire_per) VALUES ($1, $2, 'Command', $3, $4, $5) ON CONFLICT (guild_id, item_name, acquired_by) DO UPDATE
                 SET min_acquired=$3, max_acquired=$4, acquire_per=$5""",
                 ctx.guild.id, item_name, random_min, random_max, timeout_timevalue.delta.total_seconds()
             )
@@ -472,7 +472,7 @@ class ItemCommands(utils.Cog):
 
         # Go through each item
         for item in acquirable_items:
-            if item['acquired_by'].lower() == 'command':
+            if item['acquired_by'] == 'Command':
                 lines.append(f'command -> "{item["item_name"]}" [label="{item["min_acquired"]}-{item["max_acquired"]}x"];')
         for item in craftable_items:
             lines.append(f'"{item["ingredient_name"]}" -> "{item["item_name"]}" [label="{item["amount"]}x"];')
