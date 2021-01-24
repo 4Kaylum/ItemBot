@@ -20,10 +20,12 @@ CREATE TABLE IF NOT EXISTS guild_items(
 );
 
 
-CREATE TYPE acquire_type AS ENUM(
-    'message', 'command'
-);
-d
+DO $$ BEGIN
+    CREATE TYPE acquire_type AS ENUM('Message', 'Command');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
 
 CREATE TABLE IF NOT EXISTS guild_item_acquire_methods(
     guild_id BIGINT NOT NULL,
